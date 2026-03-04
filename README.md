@@ -9,15 +9,17 @@ HLOS — MicroPython OS Framework
     Скачайте последнюю прошивку (v1.20+) с официального сайта micropython.org.
 
     Установите утилиту esptool:
-    Bash
-
     pip install esptool
 
     Очистите память и прошейте устройство:
-    Bash
 
+    ESP32
     esptool.py --chip esp32 --port /dev/ttyUSB0 erase_flash
-    esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 460800 write_flash -z 0x1000 esp32-202x-v1.x.bin
+    esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 460800 write_flash -z 0x1000 ESP32_GENERIC_S3-20251209-v1.27.0.bin
+
+    ESP32-c3
+    esptool.py --port /dev/ttyACM0 erase_flash
+    esptool.py --port /dev/ttyACM0 --baud 460800 write_flash 0 ESP32_GENERIC_C3-20251209-v1.27.0.bin
 
     (Замените /dev/ttyUSB0 на ваш COM-порт и укажите имя скачанного файла прошивки).
 
