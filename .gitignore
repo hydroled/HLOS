@@ -1,17 +1,2 @@
-# Виртуальное окружение (скрытая папка)
-.venv/
-env/
-
-# Кэш Python
-__pycache__/
-*.py[cod]
-
-# Скрытая папка вашей IDE (например, PyCharm или VS Code)
+*.json
 .idea/
-.vscode/
-
-# Файлы с секретами (пароли, ключи API)
-.env
-
-wifi.json
-
