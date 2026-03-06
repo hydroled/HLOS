@@ -24,7 +24,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch('/api/system/info');
             const data = await res.json();
 
-            // Защита от undefined
             if (!data || !data.platform) throw new Error("Неверный формат");
 
             infoList.innerHTML = `
@@ -47,7 +46,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {}
     }
 
-    // Сохранение имени и таймзоны
     saveSysBtn.addEventListener('click', async () => {
         saveSysBtn.disabled = true; sysStatus.textContent = "Сохранение...";
         try {
@@ -61,7 +59,6 @@ document.addEventListener('DOMContentLoaded', () => {
         finally { saveSysBtn.disabled = false; }
     });
 
-    // Смена пароля
     saveAuthBtn.addEventListener('click', async () => {
         const login = loginInput.value.trim();
         const pass = passInput.value.trim();
@@ -83,7 +80,6 @@ document.addEventListener('DOMContentLoaded', () => {
         finally { saveAuthBtn.disabled = false; }
     });
 
-    // Время
     const now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
     timeInput.value = now.toISOString().slice(0, 16);
