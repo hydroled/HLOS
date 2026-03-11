@@ -10,6 +10,7 @@ from modules.GPIO_board import GPIO_board
 from modules.hldevs import PumpOnGPIO
 from modules.cron import CronScheduler
 from modules.hw_reset import HardResetButton
+from modules.mqtt_client import SimpleMQTT
 
 # --- ВЕБ-МОДУЛИ ---
 from web.webserver import WebServer
@@ -60,6 +61,10 @@ class init():
     # --- СИСТЕМНЫЕ СЛУЖБЫ ---
     net = NetworkManager(name='NET_MANAGER', timezone_offset=tz_offset)
     os_kernel.add_task(net)
+
+    # --- ЗАПУСК MQTT ---
+    mqtt = SimpleMQTT(name="MQTT_Client", net_manager=net)
+    os_kernel.add_task(mqtt)
 
     # Инициализация GPIO из конфига
     pins = GPIO_board(pins_list, name="GPIO_board", group=2)

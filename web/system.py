@@ -12,11 +12,43 @@ class SystemApi():
         web.web_services.append(self.__class__.__name__)
         self.web = web
         self.web.app.route('/api/system/info')(self.api_sys_info)
-        self.web.app.route('/api/system/config')(self.api_config) # Новый единый маршрут настроек
+        self.web.app.route('/api/system/config')(self.api_config)
         self.web.app.route('/api/system/settime')(self.api_set_time)
         self.web.app.route('/api/system/setauth')(self.api_set_auth)
         self.web.app.route('/api/system/reboot')(self.api_reboot)
         self.web.app.route('/api/system/factory_reset')(self.api_factory_reset)
+
+    # --- БЕЗОПАСНЫЕ ФУНКЦИИ РАБОТЫ С КОНФИГОМ ---
+    def _get_sys_config(self):
+        """Читает system.json или возвращает безопасный дефолт"""
+        default_conf = {
+            "name": "MyDevice",
+            "timezone": 3,
+            "login": "admin",
+            "password": "password",
+            "version": "0.1"
+        }
+        try:
+            with open('system.json', 'r') as f:
+                saved = json.load(f)
+                if isinstance(saved, dict):
+                    default_conf.update(saved)
+        except Exception:
+            pass
+        return default_conf
+
+    def _save_sys_config(self, updates):
+        """Аккуратно обновляет только переданные ключи, не затирая остальные"""
+        conf = self._get_sys_config()
+        conf.update(updates)
+        try:
+            with open('system.json', 'w') as f:
+                json.dump(conf, f)
+            return True
+        except Exception as e:
+            print("Ошибка записи system.json:", e)
+            return False
+    # ---------------------------------------------
 
     async def api_sys_info(self, request):
         if request.method == "OPTIONS": return await self.web.api_send_response(request)
@@ -63,29 +95,24 @@ class SystemApi():
         if request.method == "OPTIONS": return await self.web.api_send_response(request)
 
         if request.method == "GET":
-            conf = {"name": self.web.name, "timezone": 3}
-            try:
-                with open('system.json', 'r') as f:
-                    saved = json.load(f)
-                    conf["name"] = saved.get("name", self.web.name)
-                    conf["timezone"] = saved.get("timezone", 3)
-            except OSError: pass
-            await self.web.api_send_response(request, data=conf)
+            conf = self._get_sys_config()
+            safe_conf = {"name": conf.get("name"), "timezone": conf.get("timezone")}
+            await self.web.api_send_response(request, data=safe_conf)
 
         elif request.method == "POST":
             data = await read_json(request)
             if data:
-                conf = {}
-                try:
-                    with open('system.json', 'r') as f: conf = json.load(f)
-                except OSError: pass
+                updates = {}
+                if "name" in data:
+                    updates['name'] = data['name']
+                    self.web.name = data['name']
+                if "timezone" in data:
+                    updates['timezone'] = int(data['timezone'])
 
-                if "name" in data: conf['name'] = data['name']
-                if "timezone" in data: conf['timezone'] = int(data['timezone'])
-
-                with open('system.json', 'w') as f: json.dump(conf, f)
-                self.web.name = conf.get('name', self.web.name)
-                await self.web.api_send_response(request, data={"status": "ok"})
+                if self._save_sys_config(updates):
+                    await self.web.api_send_response(request, data={"status": "ok"})
+                else:
+                    raise HttpError(request, 500, "Save failed")
             else:
                 raise HttpError(request, 400, "Bad Request")
 
@@ -93,17 +120,18 @@ class SystemApi():
         if request.method == "OPTIONS": return await self.web.api_send_response(request)
         data = await read_json(request)
         if data and "login" in data and "password" in data:
-            conf = {}
-            try:
-                with open('system.json', 'r') as f: conf = json.load(f)
-            except OSError: pass
-            conf['login'] = data['login']
-            conf['password'] = data['password']
-            with open('system.json', 'w') as f: json.dump(conf, f)
-            CREDENTIALS[0] = data['login']
-            CREDENTIALS[1] = data['password']
-            await self.web.api_send_response(request, data={"status": "ok"})
-        else: raise HttpError(request, 400, "Bad Request")
+            updates = {
+                'login': data['login'],
+                'password': data['password']
+            }
+            if self._save_sys_config(updates):
+                CREDENTIALS[0] = data['login']
+                CREDENTIALS[1] = data['password']
+                await self.web.api_send_response(request, data={"status": "ok"})
+            else:
+                raise HttpError(request, 500, "Save failed")
+        else:
+            raise HttpError(request, 400, "Bad Request")
 
     async def api_set_time(self, request):
         if request.method == "OPTIONS": return await self.web.api_send_response(request)

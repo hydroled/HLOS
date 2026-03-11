@@ -16,25 +16,17 @@ class SimpleMQTT(Service):
         self.config = {}
         self.connected = False
         self.last_pub = 0
-        # Уникальный ID клиента из MAC-адреса
-        self.client_id = ubinascii.hexlify(machine.unique_id())
+        self.client_id = b"HLOS_" + ubinascii.hexlify(machine.unique_id())
 
     def load_config(self):
         try:
             with open('mqtt.json', 'r') as f:
                 return json.loads(f.read())
-        except Exception:
-            # Дефолтный конфиг, если файла нет
-            return {
-                "server": "",
-                "port": 1883,
-                "user": "",
-                "password": "",
-                "topic": "hlos/device"
-            }
+        except Exception as e:
+            print("[MQTT-DEBUG] Ошибка чтения mqtt.json:", e)
+            return {}
 
     def _safe_disconnect(self):
-        """Безопасное закрытие сокетов для экономии памяти"""
         if self.client:
             try:
                 self.client.disconnect()
@@ -42,71 +34,87 @@ class SimpleMQTT(Service):
                 pass
         self.client = None
         gc.collect()
+        print("[MQTT-DEBUG] Соединение разорвано, память очищена.")
 
     def connect(self):
+        print("[MQTT-DEBUG] Чтение конфига...")
         self.config = self.load_config()
-        if not self.config.get('server'):
+
+        server = self.config.get('server')
+        port = self.config.get('port', 1883)
+        user = self.config.get('user')
+        password = self.config.get('password')
+        topic = self.config.get('topic', 'hlos/device')
+
+        if not server:
+            print("[MQTT-DEBUG] Сервер не задан, отмена подключения.")
             return False
 
         self._safe_disconnect()
 
+        print(f"[MQTT-DEBUG] Подключение к {server}:{port} от имени '{user}'...")
         try:
             self.client = MQTTClient(
                 client_id=self.client_id,
-                server=self.config['server'],
-                port=self.config.get('port', 1883),
-                user=self.config.get('user'),
-                password=self.config.get('password'),
-                keepalive=30
+                server=server,
+                port=port,
+                user=user,
+                password=password,
+                keepalive=60
             )
-            # Привязываем функцию, которая будет обрабатывать входящие команды
             self.client.set_callback(self.sub_cb)
 
-            # Подключаемся
+            print("[MQTT-DEBUG] Устанавливаем сокет (может занять пару секунд)...")
             self.client.connect()
 
-            # Подписываемся на топик команд
-            cmd_topic = self.config.get('topic', 'hlos/device') + "/cmd"
+            cmd_topic = topic + "/cmd"
+            print(f"[MQTT-DEBUG] Подписка на {cmd_topic}...")
             self.client.subscribe(cmd_topic)
 
             self.connected = True
-            print(f"[MQTT] Подключено к {self.config['server']}")
+            print("[MQTT] ✅ Успешно подключено к брокеру!")
             return True
+
+        except OSError as e:
+            print(f"[MQTT-DEBUG] ❌ Сетевая ошибка сокета (OSError): {e}")
+            self._safe_disconnect()
+            self.connected = False
+            return False
         except Exception as e:
-            print("[MQTT] Ошибка подключения:", e)
+            print(f"[MQTT-DEBUG] ❌ Ошибка подключения: {e}")
             self._safe_disconnect()
             self.connected = False
             return False
 
     def sub_cb(self, topic, msg):
-        """Здесь мы будем ловить входящие команды от брокера"""
-        print("[MQTT] Получена команда:", topic.decode(), msg.decode())
-        # В будущем мы сможем передавать эти команды в наш cron_registry!
+        print(f"[MQTT] 📥 Получена команда: {topic.decode()} -> {msg.decode()}")
 
     async def run(self):
+        print("[MQTT] Служба запущена. Ожидание сети...")
         while True:
-            # Отдаем управление ядру
             await asyncio.sleep(1)
 
-            # Если нет Wi-Fi - даже не пытаемся
             if self.net and not self.net.sta.isconnected():
-                self.connected = False
+                if self.connected:
+                    print("[MQTT-DEBUG] Wi-Fi потерян. Ждем сеть...")
+                    self.connected = False
+                    self._safe_disconnect()
                 continue
 
-            # Если не подключены к MQTT - пробуем подключиться
             if not self.connected:
                 if not self.connect():
-                    await asyncio.sleep(5)  # Пауза перед следующей попыткой
+                    print("[MQTT-DEBUG] Ждем 5 сек перед новой попыткой...")
+                    await asyncio.sleep(5)
                 continue
 
-            # Если всё Ок - работаем
             try:
-                # check_msg() НЕ БЛОКИРУЕТ ядро. Если есть сообщение, вызовет sub_cb
                 self.client.check_msg()
 
-                # Публикуем статистику (например, раз в 10 секунд)
                 now = time.time()
-                if now - self.last_pub > 10:
+                # Берем интервал из конфига (по умолчанию 60 сек)
+                pub_interval = self.config.get('pub_interval', 60)
+
+                if now - self.last_pub > pub_interval:
                     self.last_pub = now
                     state_topic = self.config.get('topic', 'hlos/device') + "/state"
 
@@ -115,12 +123,15 @@ class SimpleMQTT(Service):
                         "uptime_sec": time.ticks_ms() // 1000
                     })
 
+                    print(f"[MQTT-DEBUG] 📤 Публикация в {state_topic}: {payload}")
                     self.client.publish(state_topic, payload)
-
-                    # ПРИНУДИТЕЛЬНО собираем мусор после формирования JSON
                     gc.collect()
 
+            except OSError as e:
+                print(f"[MQTT-DEBUG] ❌ Обрыв связи при передаче (OSError): {e}")
+                self.connected = False
+                self._safe_disconnect()
             except Exception as e:
-                print("[MQTT] Сбой в цикле (потеря связи?):", e)
+                print(f"[MQTT-DEBUG] ❌ Неизвестный сбой в рабочем цикле: {e}")
                 self.connected = False
                 self._safe_disconnect()
