@@ -44,6 +44,10 @@
             "modules/GPIO_board.py",
             "github:hydroled/HLOS/modules/GPIO_board.py"
         ],
+                [
+            "modules/GPIO_board.py",
+            "github:hydroled/HLOS/modules/mqtt_client.py"
+        ],
         [
             "web/editor.html",
             "github:hydroled/HLOS/web/editor.html"
