@@ -102,7 +102,7 @@ class WebServer(Service):
         self.app.route('/system')(self.system_page)
         self.app.route('/cron')(self.cron_page)
         self.app.route('/standard')(self.standard_page)
-        self.app.route('/editor')(self.editor_page)
+        self.app.route('/editor*')(self.editor_page)
 
     def load_settings(self):
         try:
