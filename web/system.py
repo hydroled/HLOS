@@ -25,7 +25,7 @@ class SystemApi():
             "name": "MyDevice",
             "timezone": 3,
             "login": "admin",
-            "password": "password",
+            "password": "123456789",
             "version": "0.1"
         }
         try:
