@@ -63,8 +63,15 @@ class init():
     os_kernel.add_task(net)
 
     # --- ЗАПУСК MQTT ---
-    mqtt = SimpleMQTT(name="MQTT_Client", net_manager=net)
-    os_kernel.add_task(mqtt)
+    try:
+        # Пытаемся прочитать конфиг. Если файла нет или JSON кривой - вылетит исключение
+        with open('mqtt.json', 'r') as f:
+            json.load(f)
+        mqtt = SimpleMQTT(name="MQTT_Client", net_manager=net)
+        os_kernel.add_task(mqtt)
+        print("MQTT конфиг найден, служба MQTT_Client добавлена.")
+    except (OSError, ValueError):
+        print("ВНИМАНИЕ: mqtt.json не найден или поврежден. Служба MQTT отключена.")
 
     # Инициализация GPIO из конфига
     pins = GPIO_board(pins_list, name="GPIO_board", group=2)
