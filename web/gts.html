@@ -1,0 +1,204 @@
+<style>
+    .sensor-card { background:#fff; border:1px solid #dee2e6; border-radius:12px; padding:20px; margin-bottom:20px; box-shadow:0 4px 6px rgba(0,0,0,0.05); }
+    .sensor-title { font-size:1.2rem; font-weight:bold; color:#007bff; margin-bottom:15px; border-bottom:2px solid #f8f9fa; padding-bottom:10px; display:flex; justify-content:space-between; align-items:center; }
+    .data-val { font-size:1.8rem; font-weight:bold; color:#28a745; }
+    .data-err { font-size:1.8rem; font-weight:bold; color:#dc3545; }
+    .ow-item { border:1px solid #eee; padding:10px; margin-bottom:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center; background:#fafafa; }
+    .ow-item.moving { border-color:#007bff; background:#e9f2ff; }
+    .btn-action { width:100%; padding:12px; border:none; border-radius:8px; font-size:1rem; font-weight:bold; cursor:pointer; margin-top:10px; }
+</style>
+
+<div class="container">
+    <div class="dashboard-header">Управление GTS</div>
+
+    <div class="sensor-card">
+        <div class="sensor-title">
+            <span>Воздух (температура | влажность)</span>
+            <span id="sync-icon" style="font-size:0.8rem; background:#eee; padding:3px 8px; border-radius:12px; color:#666;">Авто</span>
+        </div>
+        <div id="dht-val" class="data-val">Загрузка...</div>
+    </div>
+
+    <div class="sensor-card">
+        <div class="sensor-title">⚙️ GPIO Конфигурация</div>
+        <label>Пин 1-Wire:</label>
+        <input type="number" id="inp-ow-pin" style="width:100%; padding:8px; margin-bottom:10px; border:1px solid #ddd; border-radius:6px;">
+        <label>Пин DHT22:</label>
+        <input type="number" id="inp-dht-pin" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:6px;">
+    </div>
+
+    <div class="sensor-card">
+        <div class="sensor-title">Почва (температура по глубине)</div>
+        <div id="ow-list"></div>
+        <div id="edit-mode" style="display:none; margin-top:15px; border-top:1px solid #eee; padding-top:15px;">
+            <button onclick="scanOW()" class="btn-action" style="background:#ffc107; color:#000;">🔄 ПЕРЕСКАНИРОВАТЬ ШИНУ</button>
+            <button onclick="saveSensors()" class="btn-action" style="background:#28a745; color:#fff;">✅ СОХРАНИТЬ ПОРЯДОК</button>
+            <button onclick="toggleEdit(false)" class="btn-action" style="background:#6c757d; color:#fff;">❌ ОТМЕНА</button>
+        </div>
+        <button id="btn-edit" onclick="toggleEdit(true)" class="btn-action" style="background:#007bff; color:#fff;">📝 НАСТРОИТЬ ПОРЯДОК</button>
+    </div>
+
+    <div class="sensor-card" style="border-color: #17a2b8;">
+        <div class="sensor-title" style="color: #17a2b8;">📡 Фоновая телеметрия LoRa (Режим ОС)</div>
+        <label style="display:block; margin-bottom:5px;">Интервал отправки (секунды):</label>
+        <input type="number" id="inp-os-int" value="15" style="width:100%; height:45px; margin-bottom:15px; padding:10px; border-radius:6px; border:2px solid #ddd; box-sizing:border-box;">
+
+        <div style="display: flex; gap: 10px;">
+            <button onclick="toggleOsLora(true)" class="btn-action" style="background:#28a745; color:#fff; margin-top:0;">▶ Включить / Применить</button>
+            <button onclick="toggleOsLora(false)" class="btn-action" style="background:#6c757d; color:#fff; margin-top:0;">⏹ Остановить</button>
+        </div>
+        <p id="os-lora-status" style="margin-top: 10px; font-weight: bold; color: #666;">Статус: Остановлено</p>
+    </div>
+
+    <div class="sensor-card" style="border-color: #6f42c1;">
+        <div class="sensor-title" style="color: #6f42c1;">💤 Автономный режим (Deep Sleep)</div>
+        <label style="display:block; margin-bottom:5px;">Интервал просыпания и отправки (минуты):</label>
+        <input type="number" id="inp-sleep-int" value="10" style="width:100%; height:45px; margin-bottom:20px; padding:10px; border-radius:6px; border:2px solid #ddd; box-sizing:border-box;">
+        <button onclick="goDeepSleep()" class="btn-action" style="background:#dc3545; color:#fff; margin-top:0;">⚠️ Усыпить контроллер</button>
+    </div>
+</div>
+
+<script>
+    let currentOrder = [], isEditing = false, lastMoved = -1;
+    let lastTemps = {};
+
+    async function update() {
+        try {
+            const res = await fetch('/api/gts/read_all');
+            const data = await res.json();
+
+            let dhtHtml = data.dht.error ? '<span class="data-err">Ошибка</span>' : `${data.dht.t}°C | ${data.dht.h}%`;
+            document.getElementById('dht-val').innerHTML = dhtHtml;
+
+            if (!isEditing) {
+                document.getElementById('inp-ow-pin').value = data.config.ow_pin;
+                document.getElementById('inp-dht-pin').value = data.config.dht_pin;
+            }
+
+            if (data.onewire && data.onewire.length > 0) {
+                data.onewire.forEach(s => lastTemps[s.rom] = s.temp);
+            }
+
+            const list = document.getElementById('ow-list');
+
+            if (isEditing) {
+                currentOrder.forEach(rom => {
+                    const tempSpan = document.getElementById(`temp-${rom}`);
+                    if (tempSpan && lastTemps[rom] !== undefined) {
+                        let tempStr = lastTemps[rom] === 'N/A' ? 'N/A' : `${lastTemps[rom]}°C`;
+                        tempSpan.innerHTML = `<span style="color: ${lastTemps[rom] > 28 ? '#dc3545' : 'inherit'}">${tempStr}</span>`;
+                    }
+                });
+            } else {
+                if (data.onewire && data.onewire.length > 0) {
+                    list.innerHTML = data.onewire.map((s, idx) => `
+                        <div class="ow-item">
+                            <span><b>${idx+1}:</b> ${s.temp}${s.temp === 'N/A' ? '' : '°C'}</span>
+                            <small style="color:#666;">${s.rom}</small>
+                        </div>`).join('');
+                    currentOrder = data.onewire.map(s => s.rom);
+                } else {
+                    list.innerHTML = '<p style="color: #6c757d;">Датчики не найдены</p>';
+                }
+            }
+        } catch (e) {}
+    }
+
+    function toggleEdit(val) {
+        isEditing = val;
+        document.getElementById('sync-icon').textContent = val ? 'Настройка' : 'Авто';
+        document.getElementById('sync-icon').style.background = val ? '#ffc107' : '#eee';
+        document.getElementById('btn-edit').style.display = val ? 'none' : 'block';
+        document.getElementById('edit-mode').style.display = val ? 'block' : 'none';
+        if (val) renderEdit();
+    }
+
+    async function scanOW() {
+        if (!confirm("Пересканировать шину? Текущий порядок сбросится.")) return;
+        try {
+            const res = await fetch('/api/gts/scan');
+            currentOrder = await res.json();
+            renderEdit();
+        } catch (e) { alert("Ошибка сканирования"); }
+    }
+
+    function renderEdit() {
+        const list = document.getElementById('ow-list');
+        if (currentOrder.length === 0) {
+            list.innerHTML = '<p>Список пуст.</p>'; return;
+        }
+        list.innerHTML = currentOrder.map((rom, i) => {
+            let tempStr = lastTemps[rom] !== undefined ? (lastTemps[rom] === 'N/A' ? 'N/A' : `${lastTemps[rom]}°C`) : '...';
+            return `
+            <div class="ow-item ${i === lastMoved ? 'moving' : ''}">
+                <span>
+                    <b>#${i+1}</b> <span id="temp-${rom}" style="font-weight:bold; margin-left:10px;">${tempStr}</span><br>
+                    <small>${rom}</small>
+                </span>
+                <div>
+                    <button onclick="move(${i}, -1)" style="padding:10px 15px; margin-right:5px;">↑</button>
+                    <button onclick="move(${i}, 1)" style="padding:10px 15px;">↓</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function move(idx, dir) {
+        let target = idx + dir;
+        if (target < 0 || target >= currentOrder.length) return;
+        [currentOrder[idx], currentOrder[target]] = [currentOrder[target], currentOrder[idx]];
+        lastMoved = target;
+        renderEdit();
+    }
+
+    async function saveSensors() {
+        const body = {
+            ow_pin: document.getElementById('inp-ow-pin').value,
+            dht_pin: document.getElementById('inp-dht-pin').value,
+            ow_order: currentOrder
+        };
+        try {
+            await fetch('/api/gts/save', { method: 'POST', body: JSON.stringify(body) });
+            toggleEdit(false);
+            lastMoved = -1;
+            update();
+        } catch (e) { alert("Ошибка сохранения"); }
+    }
+
+    async function toggleOsLora(start) {
+        const stat = document.getElementById('os-lora-status');
+        stat.textContent = "Отправка команды...";
+
+        const body = {
+            action: start ? "start" : "stop",
+            interval: parseInt(document.getElementById('inp-os-int').value) || 15
+        };
+
+        try {
+            const res = await fetch('/api/gts/lora_os', { method: 'POST', body: JSON.stringify(body) });
+            const data = await res.json();
+            stat.textContent = "Статус: " + data.msg;
+            stat.style.color = start ? "#28a745" : "#666";
+        } catch (e) {
+            stat.textContent = "Ошибка сети";
+            stat.style.color = "#dc3545";
+        }
+    }
+
+    async function goDeepSleep() {
+        if (!confirm("Внимание! Контроллер уснет. Связь по Wi-Fi прервется. Для возврата потребуется аппаратный сброс (Reset). Продолжить?")) return;
+        const body = {
+            sleep_int: parseInt(document.getElementById('inp-sleep-int').value) || 10,
+            ow_pin: parseInt(document.getElementById('inp-ow-pin').value),
+            dht_pin: parseInt(document.getElementById('inp-dht-pin').value),
+            ow_order: currentOrder
+        };
+        try {
+            await fetch('/api/gts/deepsleep', { method: 'POST', body: JSON.stringify(body) });
+            document.body.innerHTML = "<h1 style='text-align:center; margin-top:20%; color:#dc3545;'>Контроллер в автономном режиме (Сон)</h1>";
+        } catch (e) { alert("Ошибка перехода в сон"); }
+    }
+
+    update();
+    setInterval(update, 5000);
+</script>

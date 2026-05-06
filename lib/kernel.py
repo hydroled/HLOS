@@ -32,7 +32,7 @@ class Kernel:
 
         if TREAD:
           print("Start Event Loop in thread: NonBlock Repl")
-          #_ = _thread.stack_size(1111)  #STACK_SIZE
+          _thread.stack_size(8192)
           _thread.start_new_thread(loop.run_forever, ())
         else:
           print("Start Event Loop: Block Repl")

@@ -20,6 +20,7 @@ from web.standard import StandardApi
 from web.network import NetworkApi
 from web.cron import CronApi
 from web.system import SystemApi
+from web.gts import GtsApi  # <--- Добавлен новый модуль
 
 webrepl.start()
 
@@ -29,7 +30,6 @@ pins = None
 sw = None
 
 h = "reset(), net.sta.scan(), net.connect(lan,psw), net.status, ..."
-
 
 class init():
     global net, sw, cron, pins
@@ -64,7 +64,6 @@ class init():
 
     # --- ЗАПУСК MQTT ---
     try:
-        # Пытаемся прочитать конфиг. Если файла нет или JSON кривой - вылетит исключение
         with open('mqtt.json', 'r') as f:
             json.load(f)
         mqtt = SimpleMQTT(name="MQTT_Client", net_manager=net)
@@ -89,7 +88,6 @@ class init():
     pumps = PumpOnGPIO()
 
     # --- РЕЕСТР ОБЪЕКТОВ ДЛЯ ПЛАНИРОВЩИКА ---
-    # Сюда добавляем все объекты, чьи функции можно вызывать из JSON
     cron_registry = {
         "pins": pins,
         "pumps": pumps
@@ -97,25 +95,17 @@ class init():
 
     # --- ДИНАМИЧЕСКАЯ РЕГИСТРАЦИЯ КОМАНД КРОНА ---
     for cmd in hw_config.get('cron_commands', []):
-        target_str = cmd.get('target')  # например, "pins.set_value"
+        target_str = cmd.get('target')
         if not target_str:
             continue
-
         try:
-            # Разбиваем "pins.set_value" на "pins" и "set_value"
             obj_name, method_name = target_str.split('.')
-
             if obj_name in cron_registry:
                 target_obj = cron_registry[obj_name]
-
-                # Магия Python: достаем реальную функцию по имени строки
                 target_func = getattr(target_obj, method_name)
-
-                # Регистрируем в планировщике
                 cron.append_command(cmd['id'], target_func, cmd['name'], cmd['args'])
             else:
                 print(f"ВНИМАНИЕ: Объект '{obj_name}' не найден в реестре Крона.")
-
         except Exception as e:
             print(f"ВНИМАНИЕ: Ошибка загрузки задачи Крона '{target_str}': {e}")
 
@@ -126,10 +116,10 @@ class init():
     _ = StandardApi(name="Web standard", web=web)
     _ = NetworkApi(name="Network API", web=web)
     _ = SystemApi(name="System API", web=web)
+    _ = GtsApi(name="Web GTS", web=web) # <--- Инициализация нового модуля
 
     # Запуск ядра
     os_kernel.start()
-
 
 if __name__ == "__main__":
     init()

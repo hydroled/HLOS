@@ -102,6 +102,7 @@ class WebServer(Service):
         self.app.route('/system')(self.system_page)
         self.app.route('/cron')(self.cron_page)
         self.app.route('/standard')(self.standard_page)
+        self.app.route('/gts')(self.gts_page)
         self.app.route('/editor*')(self.editor_page)
 
     def load_settings(self):
@@ -154,6 +155,10 @@ class WebServer(Service):
     @authenticate(CREDENTIALS)
     async def standard_page(self, request):
         await self.render_page(request, 'standard.html')
+
+    @authenticate(CREDENTIALS)
+    async def gts_page(self, request):
+        await self.render_page(request, 'gts.html')
 
     @authenticate(CREDENTIALS)
     async def editor_page(self, request):
