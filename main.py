@@ -20,7 +20,8 @@ from web.standard import StandardApi
 from web.network import NetworkApi
 from web.cron import CronApi
 from web.system import SystemApi
-from web.gts import GtsApi  # <--- Добавлен новый модуль
+from web.gts_tx import GtsTxApi  # <--- Добавлен новый модуль
+from web.gts_rx import GtsRxApi
 
 webrepl.start()
 
@@ -116,7 +117,8 @@ class init():
     _ = StandardApi(name="Web standard", web=web)
     _ = NetworkApi(name="Network API", web=web)
     _ = SystemApi(name="System API", web=web)
-    _ = GtsApi(name="Web GTS", web=web) # <--- Инициализация нового модуля
+    _ = GtsTxApi(name="Web GTS TX", web=web) # <--- Инициализация нового модуля
+    _ = GtsRxApi(name="Web GTS RX", web=web)
 
     # Запуск ядра
     os_kernel.start()

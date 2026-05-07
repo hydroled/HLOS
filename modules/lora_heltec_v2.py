@@ -1,3 +1,4 @@
+# lora_heltec_v2.py
 import machine
 import uasyncio as asyncio
 import time
@@ -11,10 +12,8 @@ class LoRaNode:
         self.rst = machine.Pin(14, machine.Pin.OUT)
         self.vext = machine.Pin(21, machine.Pin.OUT)
 
-        # Жесткое притягивание пина DIO0 к земле (защита от наводок Wi-Fi)
-        self.dio0 = machine.Pin(26, machine.Pin.IN, machine.Pin.PULL_DOWN)
+        self.dio0 = machine.Pin(26, machine.Pin.IN)
 
-        # Скорость 1 МГц оптимальна для работы в фоновом потоке
         self.spi = machine.SPI(1, baudrate=1000000, polarity=0, phase=0,
                                sck=machine.Pin(5), mosi=machine.Pin(27), miso=machine.Pin(19))
 
@@ -43,42 +42,51 @@ class LoRaNode:
         self.rst.value(1)
         await asyncio.sleep_ms(200)
 
-        # Режим 0x81 (Standby) — критичен для стабильности DIO0
+        # === ИСПРАВЛЕНИЕ: Правильный вход в режим LoRa ===
+        # 1. Переходим в Sleep, чтобы разблокировать бит LoRa
+        await self._rw(0x01, 0x80)
+        await asyncio.sleep_ms(10)
+        # 2. Только теперь переходим в рабочий Standby
         await self._rw(0x01, 0x81)
+
         if await self._rw(0x42) != 0x12: raise RuntimeError("LoRa Error")
 
-        await self._rw(0x06, 108)
-        await self._rw(0x07, 64)
+        await self._rw(0x06, 108);
+        await self._rw(0x07, 64);
         await self._rw(0x08, 0)
-        await self._rw(0x1D, 0x72)
-        await self._rw(0x1E, 0xA4)
+        await self._rw(0x1D, 0x72);
+        await self._rw(0x1E, 0xA4);
         await self._rw(0x09, 0x8F)
+        await self._rw(0x0E, 0x00)  # TxBaseAddr
+        await self._rw(0x0F, 0x00)  # RxBaseAddr
 
         await self._rw(0x40, 0x00)
         self.dio0.irq(handler=lambda t: self.irq_flag.set(), trigger=machine.Pin.IRQ_RISING)
-        print("LoRa Hardware Init OK (1MHz, Standby Mode)")
+        print("LoRa Hardware Init OK (LoRa Mode Active)")
 
     async def send(self, data):
         payload = data.encode() if isinstance(data, str) else data
-        await self._rw(0x01, 0x81)  # Standby
+
+        await self._rw(0x01, 0x81)  # Убеждаемся, что мы в Standby
         await self._rw(0x40, 0x40)  # DIO0 -> TxDone
-        await self._rw(0x0D, 0x00)  # FIFO pointer
+        await self._rw(0x0D, 0x00)  # Сброс указателя FIFO
         await self._rw(0x22, len(payload))
 
-        # --- ИСПРАВЛЕНИЕ: Пакетная запись ---
-        # Вместо цикла с await, записываем все данные в один заход через SPI.
-        # Это предотвращает переполнение стека при длинных JSON-пакетах.
         async with self.lock:
             self.cs.value(0)
-            self.spi.write(b'\x80' + payload)  # 0x80 - бит записи в FIFO (регистр 0x00)
+            self.spi.write(b'\x80' + payload)
             self.cs.value(1)
 
-        await self._rw(0x01, 0x83)  # Переход в режим передачи (TX)
+        # Жестко очищаем флаг перед передачей
+        self.irq_flag = asyncio.ThreadSafeFlag()
+        self.dio0.irq(handler=lambda t: self.irq_flag.set(), trigger=machine.Pin.IRQ_RISING)
+
+        await self._rw(0x01, 0x83)  # TX Mode
 
         try:
-            # Ждем прерывания от модуля (TxDone)
+            # На SF10 21 байт передается ~370 мс. Таймаута в 3000 мс хватит с запасом.
             await asyncio.wait_for_ms(self.irq_flag.wait(), 3000)
-            await self._rw(0x12, 0x08)  # Сброс флага TxDone в чипе
+            await self._rw(0x12, 0x08)  # Очищаем флаг TxDone в чипе
             return True
         except asyncio.TimeoutError:
             print("[LoRa] Send Timeout!")
@@ -99,15 +107,11 @@ class LoRaNode:
             if flags & 0x40:
                 length = await self._rw(0x13)
                 await self._rw(0x0D, await self._rw(0x10))
-                data = bytearray()
-
-                # --- ИСПРАВЛЕНИЕ: Пакетное чтение ---
                 async with self.lock:
                     self.cs.value(0)
-                    self.spi.write(bytes([0x00]))  # Адрес FIFO для чтения
+                    self.spi.write(bytes([0x00]))
                     data = self.spi.read(length)
                     self.cs.value(1)
-
                 rssi = await self._rw(0x1A) - 164
                 await self._rw(0x12, 0xFF)
                 return data, rssi
@@ -116,5 +120,4 @@ class LoRaNode:
         return None, None
 
     def get_battery(self):
-        val = self.adc.read()
-        return (val / 4095) * 3.3 * 2
+        return (self.adc.read() / 4095) * 3.3 * 2
