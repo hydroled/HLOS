@@ -185,17 +185,27 @@ class WebServer(Service):
 
         # 1. Вычисляем расширение файла (js, css, html)
         ext = url.split('.')[-1]
-        # 2. Берем правильный MIME-тип из вашего словаря в начале файла
         ct = content_type.get(ext, 'text/plain')
 
+        if ext in ['css', 'js', 'ico', 'svg']:
+            cache_header = "Cache-Control: public, max-age=604800\r\n"
+        else:
+            cache_header = "Cache-Control: no-cache\r\n"  # HTML всегда запрашиваем свежий
+
         try:
-            # 3. ВОТ ОНО! Отправляем правильные заголовки ДО того, как отправить сам файл
-            await request.write(f"HTTP/1.1 200 OK\r\nContent-Type: {ct}\r\nConnection: close\r\n\r\n")
-            await send_file(request, self.app.STATIC_DIR + url, binary=True)
-        except:
+            gc.collect()
+
+            await request.write(f"HTTP/1.1 200 OK\r\nContent-Type: {ct}\r\nConnection: close\r\n{cache_header}\r\n")
+
+            await asyncio.wait_for(send_file(request, self.app.STATIC_DIR + url, binary=True), timeout=10.0)
+
+        except asyncio.TimeoutError:
+            print(f"[WebServer] Оборвано по таймауту (Slow Client): {url}")
+        except Exception as e:
             return 'Not Found', 404
 
     async def api_send_response(self, request, methods="GET, POST, PUT, DELETE, OPTIONS", data=None):
+        gc.collect()  # <--- Добавьте эту строку
         await request.write(f"HTTP/1.1 200 OK\r\naccess-control-allow-origin: *\r\n")
         await request.write("Content-Type: application/json\r\n\r\n")
         if data:
