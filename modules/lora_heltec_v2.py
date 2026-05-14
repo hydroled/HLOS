@@ -86,7 +86,7 @@ class LoRaNode:
                     print("[LoRa] Send Timeout!")
                     await self._rw(0x01, 0x81)
                     return False
-                await asyncio.sleep_ms(10)
+                await asyncio.sleep_ms(50)
                 
             await self._rw(0x12, 0x08)  # Очищаем флаг TxDone в чипе
             return True
@@ -105,7 +105,7 @@ class LoRaNode:
             while self.dio0.value() == 0:
                 if timeout_ms > 0 and time.ticks_diff(time.ticks_ms(), start_time) > timeout_ms:
                     return None, None
-                await asyncio.sleep_ms(10)
+                await asyncio.sleep_ms(50)
 
             flags = await self._rw(0x12)
             if flags & 0x40:

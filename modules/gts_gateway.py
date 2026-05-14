@@ -89,7 +89,7 @@ class GtsGateway(Service):
         while self.rx_active:
             try:
                 async with self.lora_lock:
-                    data, rssi = await lora.listen(timeout_ms=1000)
+                    data, rssi = await lora.listen(timeout_ms=0)
 
                 if data:
                     if len(data) == 21:
