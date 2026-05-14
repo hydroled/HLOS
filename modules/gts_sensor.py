@@ -32,7 +32,7 @@ class GtsSensor(Service):
         self.sleep_interval = 10
         
         self.sensor_cache = {
-            "bat": 0, "air_t": 0, "air_h": 0, "soil": [0] * 8,
+            "bat": 0, "air_t": 0, "air_h": 0, "soil": [0] * 6,
             "dht_ui": {"error": True},
             "ow_ui": []
         }
@@ -125,7 +125,7 @@ class GtsSensor(Service):
                                         ow_ui.append({"rom": rom_hex, "temp": "N/A"})
                                     else:
                                         ow_ui.append({"rom": rom_hex, "temp": temp})
-                                        if i < 8:
+                                        if i < 6:
                                             self.sensor_cache['soil'][i] = int(temp * 100)
                                 except Exception:
                                     ow_ui.append({"rom": rom_hex, "temp": "N/A"})
@@ -156,7 +156,7 @@ class GtsSensor(Service):
             lora = await self._get_lora()
             while self.lora_active:
                 c = self.sensor_cache
-                payload = struct.pack('<HhB8h', c['bat'], c['air_t'], c['air_h'], *c['soil'])
+                payload = struct.pack('<HhB6h', c['bat'], c['air_t'], c['air_h'], *c['soil'])
                 try:
                     async with self.lora_lock:
                         success = await lora.send(payload)
@@ -200,12 +200,12 @@ class GtsSensor(Service):
                 ow.convert_temp()
                 await asyncio.sleep(0.75)
                 for i, rom_hex in enumerate(self.ow_order):
-                    if i < 8:
+                    if i < 6:
                         rom_bytes = ubinascii.unhexlify(rom_hex)
                         c['soil'][i] = int(ow.read_temp(rom_bytes) * 100)
             except: pass
             
-        payload = struct.pack('<HhB8h', c['bat'], c['air_t'], c['air_h'], *c['soil'])
+        payload = struct.pack('<HhB6h', c['bat'], c['air_t'], c['air_h'], *c['soil'])
         
         try:
             lora = await self._get_lora()

@@ -30,21 +30,39 @@ class GtsGateway(Service):
         super().__init__(name)
         self.lora_node = None
         self.lora_lock = asyncio.Lock()
-        
+
         self.rx_task = None
         self.rx_active = False
         self.autostart = False
         self.syslog_ip = ""
         self.syslog_port = 514
-        
+
         self.last_data = {"status": "waiting", "data": None, "rssi": 0, "time": ""}
         self.packet_log = []
-        
+
+        # Local logging buffer
+        self.log_buffer = []
+        self.log_last_flush = time.ticks_ms()
+
         self.load_config()
         self.syslog = SyslogClient(host=self.syslog_ip, port=self.syslog_port)
 
-    def load_config(self):
+    def flush_log_buffer(self):
+        if not self.log_buffer:
+            return
         try:
+            # Открываем файл на дозапись ('a')
+            with open('lora_log.csv', 'a') as f:
+                for line in self.log_buffer:
+                    f.write(line + '\n')
+            self.log_buffer = []
+            self.log_last_flush = time.ticks_ms()
+            print(f"[{self.name}] Буфер логов сброшен на флеш.")
+        except Exception as e:
+            print(f"[{self.name}] Ошибка записи лога на флеш: {e}")
+
+    def load_config(self):
+    ...
             with open('hardware.json', 'r') as f:
                 hw = json.load(f)
                 rx_conf = hw.get('gts_rx', {})
@@ -92,19 +110,33 @@ class GtsGateway(Service):
                     data, rssi = await lora.listen(timeout_ms=0)
 
                 if data:
-                    if len(data) == 21:
-                        unpacked = struct.unpack('<HhB8h', data)
+                    if len(data) == 17:
+                        unpacked = struct.unpack('<HhB6h', data)
                         parsed = {
                             "bat": unpacked[0] / 1000.0,
                             "air_t": unpacked[1] / 100.0,
                             "air_h": unpacked[2],
-                            "soil": [s / 100.0 for s in unpacked[3:11]]
+                            "soil": [s / 100.0 for s in unpacked[3:9]]
                         }
-                        t_str = '{:02d}:{:02d}:{:02d}'.format(*time.localtime()[3:6])
-                        self.last_data = {"status": "ok", "data": parsed, "rssi": rssi, "time": t_str}
+                        # Получаем текущее время для логов
+                        t = time.localtime()
+                        t_str = '{:02d}:{:02d}:{:02d}'.format(t[3], t[4], t[5])
+                        date_str = '{:04d}-{:02d}-{:02d}'.format(t[0], t[1], t[2])
                         
+                        self.last_data = {"status": "ok", "data": parsed, "rssi": rssi, "time": t_str}
                         self.log_packet(rssi, parsed)
                         print(f"[{self.name}] Принят пакет. RSSI:{rssi}")
+                        
+                        # Сохраняем в локальный буфер (CSV)
+                        # Формат: YYYY-MM-DD HH:MM:SS, rssi, bat, air_t, air_h, soil0..soil5
+                        soil_csv = ",".join([str(s) for s in parsed["soil"]])
+                        csv_line = f"{date_str} {t_str},{rssi},{parsed['bat']},{parsed['air_t']},{parsed['air_h']},{soil_csv}"
+                        self.log_buffer.append(csv_line)
+                        
+                        # Сбрасываем буфер, если записей > 20 или прошло больше часа
+                        time_since_flush = time.ticks_diff(time.ticks_ms(), self.log_last_flush)
+                        if len(self.log_buffer) >= 20 or time_since_flush > 3600000:
+                            self.flush_log_buffer()
                         
                         if self.syslog_ip:
                             self.syslog.send(json.dumps({"rssi": rssi, "data": parsed}))
