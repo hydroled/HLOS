@@ -62,7 +62,7 @@ class GtsGateway(Service):
             print(f"[{self.name}] Ошибка записи лога на флеш: {e}")
 
     def load_config(self):
-    ...
+        try:
             with open('hardware.json', 'r') as f:
                 hw = json.load(f)
                 rx_conf = hw.get('gts_rx', {})
