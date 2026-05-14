@@ -18,7 +18,6 @@ class LoRaNode:
                                sck=machine.Pin(5), mosi=machine.Pin(27), miso=machine.Pin(19))
 
         self.lock = asyncio.Lock()
-        self.irq_flag = asyncio.ThreadSafeFlag()
         self.adc = machine.ADC(machine.Pin(37))
         self.adc.atten(machine.ADC.ATTN_11DB)
 
@@ -62,7 +61,6 @@ class LoRaNode:
         await self._rw(0x0F, 0x00)  # RxBaseAddr
 
         await self._rw(0x40, 0x00)
-        self.dio0.irq(handler=lambda t: self.irq_flag.set(), trigger=machine.Pin.IRQ_RISING)
         print("LoRa Hardware Init OK (LoRa Mode Active)")
 
     async def send(self, data):
@@ -78,19 +76,22 @@ class LoRaNode:
             self.spi.write(b'\x80' + payload)
             self.cs.value(1)
 
-        # Жестко очищаем флаг перед передачей
-        self.irq_flag = asyncio.ThreadSafeFlag()
-        self.dio0.irq(handler=lambda t: self.irq_flag.set(), trigger=machine.Pin.IRQ_RISING)
-
         await self._rw(0x01, 0x83)  # TX Mode
 
+        start = time.ticks_ms()
         try:
             # На SF10 21 байт передается ~370 мс. Таймаута в 3000 мс хватит с запасом.
-            await asyncio.wait_for_ms(self.irq_flag.wait(), 3000)
+            while self.dio0.value() == 0:
+                if time.ticks_diff(time.ticks_ms(), start) > 3000:
+                    print("[LoRa] Send Timeout!")
+                    await self._rw(0x01, 0x81)
+                    return False
+                await asyncio.sleep_ms(10)
+                
             await self._rw(0x12, 0x08)  # Очищаем флаг TxDone в чипе
             return True
-        except asyncio.TimeoutError:
-            print("[LoRa] Send Timeout!")
+        except Exception as e:
+            print(f"[LoRa] Send Error: {e}")
             await self._rw(0x01, 0x81)
             return False
 
@@ -98,11 +99,13 @@ class LoRaNode:
         await self._rw(0x01, 0x81)
         await self._rw(0x40, 0x00)
         await self._rw(0x01, 0x85)
+        
+        start_time = time.ticks_ms()
         try:
-            if timeout_ms > 0:
-                await asyncio.wait_for_ms(self.irq_flag.wait(), timeout_ms)
-            else:
-                await self.irq_flag.wait()
+            while self.dio0.value() == 0:
+                if timeout_ms > 0 and time.ticks_diff(time.ticks_ms(), start_time) > timeout_ms:
+                    return None, None
+                await asyncio.sleep_ms(10)
 
             flags = await self._rw(0x12)
             if flags & 0x40:
@@ -116,8 +119,8 @@ class LoRaNode:
                 rssi = await self._rw(0x1A) - 164
                 await self._rw(0x12, 0xFF)
                 return data, rssi
-        except asyncio.TimeoutError:
-            pass
+        except Exception as e:
+            print(f"[LoRa] Listen Error: {e}")
         return None, None
 
     def get_battery(self):

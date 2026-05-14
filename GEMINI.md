@@ -1,1 +1,2 @@
 - Before making any code changes, always discuss the problem and the proposed solution with the user for approval.
+- Future improvement: Consider replacing LoRa hardware IRQs with async polling (10-50ms) in `listen()` to improve system stability under high radio load.
