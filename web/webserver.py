@@ -174,6 +174,32 @@ class WebServer(Service):
         data = await read_json(request)
         res = get_custom_data(data)
         res['name'] = self.name
+        
+        # GTS Dashboard Data
+        res['role'] = 'unknown'
+        res['sensors'] = {}
+        res['packet_log'] = []
+        
+        from lib.kernel import os_kernel
+        sensor = os_kernel.find_task("GTS_Sensor")
+        gw = os_kernel.find_task("GTS_Gateway")
+        
+        if sensor:
+            res['role'] = 'tx'
+            res['packet_log'] = sensor.packet_log
+            c = sensor.sensor_cache
+            res['sensors'] = {
+                "bat": c['bat'] / 1000.0,
+                "air_t": c['air_t'] / 100.0,
+                "air_h": c['air_h'],
+                "soil": [s / 100.0 for s in c['soil']]
+            }
+        elif gw:
+            res['role'] = 'rx'
+            res['packet_log'] = gw.packet_log
+            if gw.last_data["status"] == "ok" and gw.last_data["data"]:
+                res['sensors'] = gw.last_data["data"]
+        
         await send_header_api(request)
         await request.write(json.dumps(res))
 

@@ -20,8 +20,6 @@ from web.standard import StandardApi
 from web.network import NetworkApi
 from web.cron import CronApi
 from web.system import SystemApi
-from web.gts_tx import GtsTxApi  # <--- Добавлен новый модуль
-from web.gts_rx import GtsRxApi
 
 webrepl.start()
 
@@ -117,8 +115,24 @@ class init():
     _ = StandardApi(name="Web standard", web=web)
     _ = NetworkApi(name="Network API", web=web)
     _ = SystemApi(name="System API", web=web)
-    _ = GtsTxApi(name="Web GTS TX", web=web) # <--- Инициализация нового модуля
-    _ = GtsRxApi(name="Web GTS RX", web=web)
+
+    # --- GTS: Определение роли и запуск ---
+    gts_role = hw_config.get("gts", {}).get("role", "sensor")
+
+    if gts_role == "sensor":
+        print("Запуск в режиме GTS Sensor (TX)")
+        from modules.gts_sensor import GtsSensor
+        from web.gts_tx import GtsTxApi
+        sensor = GtsSensor()
+        os_kernel.add_task(sensor)
+        _ = GtsTxApi(name="Web GTS TX", web=web)
+    elif gts_role == "gateway":
+        print("Запуск в режиме GTS Gateway (RX)")
+        from modules.gts_gateway import GtsGateway
+        from web.gts_rx import GtsRxApi
+        gw = GtsGateway()
+        os_kernel.add_task(gw)
+        _ = GtsRxApi(name="Web GTS RX", web=web)
 
     # Запуск ядра
     os_kernel.start()

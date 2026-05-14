@@ -1,0 +1,1 @@
+- Before making any code changes, always discuss the problem and the proposed solution with the user for approval.

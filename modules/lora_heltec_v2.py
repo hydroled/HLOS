@@ -48,6 +48,7 @@ class LoRaNode:
         await asyncio.sleep_ms(10)
         # 2. Только теперь переходим в рабочий Standby
         await self._rw(0x01, 0x81)
+        await asyncio.sleep_ms(10)
 
         if await self._rw(0x42) != 0x12: raise RuntimeError("LoRa Error")
 
