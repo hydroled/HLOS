@@ -57,8 +57,9 @@
                 <line x1="60" y1="320" x2="110" y2="320" stroke="#777" stroke-width="1" stroke-dasharray="2 2"/>
                 <text x="55" y="315" font-family="Arial" font-size="12" fill="#333" text-anchor="end">-800мм:</text><text id="val-m800" x="55" y="330" font-family="Arial" font-size="14" fill="#003399" font-weight="bold" text-anchor="end">--.-</text>
             </svg>
-            <div style="margin-top: 15px; font-size: 0.85rem; color: #666; background: #f8f9fa; display: inline-block; padding: 4px 12px; border-radius: 20px; border: 1px solid #eee;">
-                📡 <span id="val-role">...</span> | ⚡ <span id="val-bat">-- В</span>
+            <div style="margin-top: 15px; font-size: 0.85rem; color: #666; background: #f8f9fa; display: inline-block; padding: 6px 15px; border-radius: 20px; border: 1px solid #eee;">
+                📡 <span id="val-role">...</span> | ⚡ <span id="val-bat">-- В</span><br>
+                <b id="val-id-display" style="color: #007bff; font-size: 0.9rem;">ID: ----</b> | <span id="val-mode-display" style="font-weight: bold;">---</span>
             </div>
         </div>
 
@@ -80,6 +81,7 @@
         <a href="files" class="menu-card"><span style="font-size: 40px; margin-bottom: 10px;">📁</span><h3>Файлы</h3><p>Редактор кода</p></a>
         <a href="network" class="menu-card"><span style="font-size: 40px; margin-bottom: 10px;">🌐</span><h3>Сеть</h3><p>Настройки Wi-Fi</p></a>
         <a href="cron" class="menu-card"><span style="font-size: 40px; margin-bottom: 10px;">⏱️</span><h3>Cron</h3><p>Планировщик задач</p></a>
+        <a href="update" class="menu-card"><span style="font-size: 40px; margin-bottom: 10px;">🚀</span><h3>Обновление</h3><p>Синхронизация файлов</p></a>
         <a href="system" class="menu-card"><span style="font-size: 40px; margin-bottom: 10px;">⚙️</span><h3>Система</h3><p>Информация о чипе</p></a>
     </div>
 </div>
@@ -96,34 +98,72 @@ async function updateDashboard() {
         document.getElementById('tile-sensor-desc').textContent = isTX ? 'Локальные датчики' : 'Данные из эфира';
         document.getElementById('tile-sensor').href = isTX ? 'gts_tx' : 'gts_rx';
 
-        if (data.sensors && data.sensors.bat !== undefined) {
-            document.getElementById('val-bat').textContent = data.sensors.bat.toFixed(2) + ' В';
+        // Отображение локального ID и режима
+        if (data.device_id !== undefined) {
+            document.getElementById('val-id-display').textContent = 'ID: ' + data.device_id.toString(16).toUpperCase();
         }
-
-        if (data.sensors && data.sensors.soil) {
-            const airT = data.sensors.air_t !== undefined ? data.sensors.air_t.toFixed(1) : '--.-';
-            const airH = data.sensors.air_h !== undefined ? data.sensors.air_h : '--';
-            document.getElementById('val-air').textContent = `${airT}°C | ${airH}%`;
-
-            const soil = data.sensors.soil;
-            const ids = ['val-0', 'val-m50', 'val-m100', 'val-m200', 'val-m400', 'val-m800'];
-            ids.forEach((id, index) => {
-                const el = document.getElementById(id);
-                if (el && soil[index] !== undefined) {
-                    el.textContent = soil[index].toFixed(1);
-                    el.style.fill = soil[index] > -50 ? '#003399' : '#007bff';
+        
+        if (data.sensors) {
+            if (data.sensors.bat !== undefined) {
+                document.getElementById('val-bat').textContent = data.sensors.bat.toFixed(2) + ' В';
+            }
+            
+            if (data.sensors.mode !== undefined || isTX) {
+                const mode = data.sensors.mode;
+                const modeEl = document.getElementById('val-mode-display');
+                if (isTX) {
+                    modeEl.style.display = 'inline';
+                    modeEl.textContent = "Active OS"; modeEl.style.color = "#28a745";
+                } else {
+                    modeEl.style.display = 'none';
                 }
-            });
+            }
+
+            if (data.sensors.soil) {
+                const airT = data.sensors.air_t !== undefined ? data.sensors.air_t.toFixed(1) : '--.-';
+                const airH = data.sensors.air_h !== undefined ? data.sensors.air_h : '--';
+                document.getElementById('val-air').textContent = `${airT}°C | ${airH}%`;
+
+                const soil = data.sensors.soil;
+                const ids = ['val-0', 'val-m50', 'val-m100', 'val-m200', 'val-m400', 'val-m800'];
+                ids.forEach((id, index) => {
+                    const el = document.getElementById(id);
+                    if (el && soil[index] !== undefined) {
+                        el.textContent = soil[index].toFixed(1);
+                        el.style.fill = soil[index] > -50 ? '#003399' : '#007bff';
+                    }
+                });
+            }
         }
 
         const logContainer = document.getElementById('packet-log');
         if (data.packet_log && data.packet_log.length > 0) {
             logContainer.innerHTML = data.packet_log.map(p => {
-                const statusStr = isTX ? p.status : `RSSI: ${p.rssi}`;
+                let hexId = '----';
+                try { hexId = (p.device_id || 0).toString(16).toUpperCase(); } catch(e) {}
+                
+                const modeStr = p.mode === 1 ? "Deep Sleep" : "Active OS";
+                const modeColor = p.mode === 1 ? "#6f42c1" : "#28a745";
+                const statusStr = isTX ? `${(p.air_t || 0).toFixed(1)}°C | ${p.air_h || 0}%` : `RSSI: ${p.rssi || 0} dBm`;
                 const statusClass = (p.status === 'OK' || !isTX) ? 'log-status-ok' : 'log-status-fail';
-                const infoStr = isTX ? `${p.size}б` : `${p.bat.toFixed(2)}В`;
-                return `<div class="log-entry"><span class="log-time">${p.time}</span> <span class="${statusClass}">${statusStr}</span> <span>${infoStr}</span></div>`;
+                const dateStr = p.date || '';
+                const timeStr = p.time || '--:--:--';
+                const batStr = (p.bat || 0).toFixed(2);
+                
+                return `
+                <div class="log-entry" style="flex-direction: column; align-items: flex-start; height: auto; padding: 8px 10px;">
+                    <div style="width: 100%; display: flex; justify-content: space-between; margin-bottom: 3px;">
+                        <span class="log-time" style="font-weight: bold;">${dateStr} ${timeStr}</span>
+                        <span class="${statusClass}">${statusStr}</span>
+                    </div>
+                    <div style="width: 100%; display: flex; justify-content: space-between; font-size: 0.75rem;">
+                        <span>ID: <b style="color:#007bff">${hexId}</b> | <span style="color:${modeColor}; font-weight:bold;">${modeStr}</span></span>
+                        <span style="color: #ffc107; font-weight: bold;">${batStr}В</span>
+                    </div>
+                </div>`;
             }).join('');
+        } else {
+            logContainer.innerHTML = '<div style="color: #999; text-align: center; padding-top: 20px; font-size: 0.8rem;">Журнал пуст</div>';
         }
     } catch (e) { console.error("Ошибка API:", e); }
 }

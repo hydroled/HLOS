@@ -30,6 +30,8 @@ class GtsRxApi(Service):
             "active": gw.rx_active,
             "autostart": gw.autostart,
             "syslog_ip": gw.syslog_ip,
+            "device_id": gw.device_id,
+            "local_bat": gw.local_bat,
             "last_packet": gw.last_data
         }
         await send_header_api(request)

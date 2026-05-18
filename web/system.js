@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
             infoList.innerHTML = `
                 <li><span class="info-label">Платформа:</span> <span class="info-value">${data.platform} (${data.machine})</span></li>
                 <li><span class="info-label">Python:</span> <span class="info-value">${data.python_version}</span></li>
+                <li><span class="info-label">Последний сброс:</span> <span class="info-value" style="color:${data.raw_cause === 3 ? 'red' : '#007bff'}">${data.last_reset_cause}</span></li>
                 <li><span class="info-label">CPU:</span> <span class="info-value">${data.cpu_freq_mhz} МГц</span></li>
                 <li><span class="info-label">UID:</span> <span class="info-value">${data.unique_id}</span></li>
                 <li><span class="info-label">RAM (Free/Total):</span> <span class="info-value">${data.ram_free_kb} / ${data.ram_free_kb + data.ram_alloc_kb} KB</span></li>

@@ -1,2 +1,6 @@
 *.json
 .idea/
+GEMINI.md
+wifi.json
+hardware_tx.json
+hardware_rx.json

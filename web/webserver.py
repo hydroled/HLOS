@@ -104,6 +104,7 @@ class WebServer(Service):
         self.app.route('/standard')(self.standard_page)
         self.app.route('/gts_tx')(self.gts_tx_page)
         self.app.route('/gts_rx')(self.gts_rx_page)
+        self.app.route('/update')(self.update_page)
         self.app.route('/editor*')(self.editor_page)
 
     def load_settings(self):
@@ -166,6 +167,10 @@ class WebServer(Service):
         await self.render_page(request, 'gts_rx.html')
 
     @authenticate(CREDENTIALS)
+    async def update_page(self, request):
+        await self.render_page(request, 'update.html')
+
+    @authenticate(CREDENTIALS)
     async def editor_page(self, request):
         await self.render_page(request, 'editor.html')
 
@@ -186,19 +191,23 @@ class WebServer(Service):
         
         if sensor:
             res['role'] = 'tx'
-            res['packet_log'] = sensor.packet_log
+            res['device_id'] = sensor.device_id
+            res['packet_log'] = list(sensor.packet_log)
             c = sensor.sensor_cache
             res['sensors'] = {
                 "bat": c['bat'] / 1000.0,
                 "air_t": c['air_t'] / 100.0,
                 "air_h": c['air_h'],
+                "mode": 0,
                 "soil": [s / 100.0 for s in c['soil']]
             }
         elif gw:
             res['role'] = 'rx'
-            res['packet_log'] = gw.packet_log
+            res['device_id'] = gw.device_id
+            res['packet_log'] = list(gw.packet_log)
             if gw.last_data["status"] == "ok" and gw.last_data["data"]:
                 res['sensors'] = gw.last_data["data"]
+                res['sensors']['local_bat'] = gw.local_bat
         
         await send_header_api(request)
         await request.write(json.dumps(res))

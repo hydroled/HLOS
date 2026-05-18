@@ -89,6 +89,17 @@ class SystemApi():
         data["ram_alloc_kb"] = gc.mem_alloc() // 1024
         data["ram_free_kb"] = gc.mem_free() // 1024
 
+        # Добавляем причину перезагрузки из WDT сервиса
+        from lib.kernel import os_kernel
+        wdt = os_kernel.find_task("Watchdog")
+        if wdt:
+            data["last_reset_cause"] = wdt.cause_str
+        else:
+            # Fallback если сервис не найден
+            import machine
+            causes = {1: "Power On", 2: "Hard Reset", 3: "Watchdog", 4: "Deep Sleep", 5: "Software"}
+            data["last_reset_cause"] = causes.get(machine.reset_cause(), "Unknown")
+
         await self.web.api_send_response(request, data=data)
 
     async def api_config(self, request):

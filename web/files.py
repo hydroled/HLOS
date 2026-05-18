@@ -11,6 +11,7 @@ class Files(Service):
         self.web = web
 
         self.web.app.route('/api/ls*')(self.api_ls)
+        self.web.app.route('/api/mkdir/*')(self.api_mkdir)
         self.web.app.route('/api/download/*')(self.api_download)
         self.web.app.route('/api/delete/*')(self.api_delete)
         self.web.app.route('/api/upload/*')(self.upload)
@@ -18,11 +19,18 @@ class Files(Service):
 
     async def api_ls(self, request):
         qs = str(request.url).split('?')
-        if len(qs) > 1 and 'chdir=' in qs[1]:
-            try:
-                os.chdir(qs[1].split('=')[1])
-            except:
-                pass
+        if len(qs) > 1:
+            params = qs[1].split('&')
+            for p in params:
+                if p.startswith('chdir='):
+                    try:
+                        val = p.split('=')[1]
+                        # Простейший urldecode для / и пробелов
+                        val = val.replace('%2F', '/').replace('%20', ' ')
+                        os.chdir(val)
+                        break
+                    except:
+                        pass
 
         currdir = os.getcwd()
         files = os.listdir()
@@ -35,7 +43,7 @@ class Files(Service):
             except:
                 continue
 
-        # ВОЗВРАЩЕНО: Умная сортировка (Папки сверху, файлы снизу по алфавиту)
+        # Умная сортировка (Папки сверху, файлы снизу по алфавиту)
         S_IFDIR = 16384
         sorted_files = sorted(file_stats, key=lambda x: (0 if (x[1][0] & S_IFDIR) else 1, x[0].lower()))
 
@@ -49,6 +57,15 @@ class Files(Service):
             "files": dd, "currdir": currdir,
             "total": ffd[0] * ffd[2], "free": ffd[1] * ffd[3]
         })
+
+    async def api_mkdir(self, request):
+        if request.method == "OPTIONS": return await self.web.api_send_response(request)
+        dirname = request.url.split('/')[-1]
+        try:
+            os.mkdir(dirname)
+            await self.web.api_send_response(request)
+        except:
+            raise HttpError(request, 500, "Mkdir error")
 
     async def api_delete(self, request):
         if request.method == "OPTIONS": return await self.web.api_send_response(request)
@@ -90,7 +107,6 @@ class Files(Service):
     async def upload(self, request):
         if request.method == "OPTIONS": return await self.web.api_send_response(request)
         output_file = request.url.split('/')[-1]
-        # ВОЗВРАЩЕНО: Безопасная загрузка через .tmp файл
         tmp_file = output_file + '.tmp'
         cl = request.headers.get('content-length', request.headers.get('Content-Length', 0))
         bytesleft = int(cl)

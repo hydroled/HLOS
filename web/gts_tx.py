@@ -42,6 +42,7 @@ class GtsTxApi(Service):
         data = {
             "onewire": sensor.sensor_cache['ow_ui'],
             "dht": sensor.sensor_cache['dht_ui'],
+            "device_id": sensor.device_id,
             "config": {
                 "ow_pin": sensor.ow_pin,
                 "dht_pin": sensor.dht_pin,
@@ -81,16 +82,16 @@ class GtsTxApi(Service):
                 except:
                     full = {"pins": [], "cron_commands": []}
 
-                if 'gts_tx' not in full: full['gts_tx'] = {}
+                if 'gts' not in full: full['gts'] = {}
                 
-                full['gts_tx']['ow_pin'] = int(conf.get('ow_pin', 21))
-                full['gts_tx']['dht_pin'] = int(conf.get('dht_pin', 22))
-                full['gts_tx']['measure_interval'] = int(conf.get('measure_interval', 60))
-                full['gts_tx']['ow_order'] = conf.get('ow_order', [])
-                full['gts_tx']['lora_interval'] = int(conf.get('lora_interval', 60))
-                full['gts_tx']['autostart'] = bool(conf.get('autostart', False))
-                full['gts_tx']['use_deepsleep'] = bool(conf.get('use_deepsleep', False))
-                full['gts_tx']['sleep_interval'] = int(conf.get('sleep_interval', 10))
+                full['gts']['ow_pin'] = int(conf.get('ow_pin', 21))
+                full['gts']['dht_pin'] = int(conf.get('dht_pin', 22))
+                full['gts']['measure_interval'] = int(conf.get('measure_interval', 60))
+                full['gts']['ow_order'] = conf.get('ow_order', [])
+                full['gts']['lora_interval'] = int(conf.get('lora_interval', 60))
+                full['gts']['autostart'] = bool(conf.get('autostart', False))
+                full['gts']['use_deepsleep'] = bool(conf.get('use_deepsleep', False))
+                full['gts']['sleep_interval'] = int(conf.get('sleep_interval', 10))
 
                 with open('hardware.json', 'w') as f:
                     json.dump(full, f)
@@ -123,9 +124,12 @@ class GtsTxApi(Service):
 
     async def api_go_sleep(self, request):
         if request.method == "OPTIONS": return await self.web.api_send_response(request)
+        data = await read_json(request)
         sensor = self._get_sensor()
-        if sensor:
+        if sensor and data:
             import uasyncio as asyncio
+            # Обновляем интервал перед сном
+            sensor.sleep_interval = int(data.get("sleep_int", 10))
             asyncio.create_task(sensor.run_once_and_sleep())
         await send_header_api(request)
         await request.write(json.dumps({"status": "ok"}))

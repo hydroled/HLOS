@@ -10,6 +10,7 @@ from modules.GPIO_board import GPIO_board
 from modules.hldevs import PumpOnGPIO
 from modules.cron import CronScheduler
 from modules.hw_reset import HardResetButton
+from modules.wdt import WatchdogService
 from modules.mqtt_client import SimpleMQTT
 
 # --- ВЕБ-МОДУЛИ ---
@@ -78,8 +79,11 @@ class init():
     cron = CronScheduler()
     os_kernel.add_task(cron)
 
-    hw_reset = HardResetButton(name="HW_Reset", pin_num=9)
-    os_kernel.add_task(hw_reset)
+    wdt = WatchdogService(timeout=60000)
+    os_kernel.add_task(wdt)
+
+    # hw_reset = HardResetButton(name="HW_Reset", pin_num=9)
+    # os_kernel.add_task(hw_reset)
 
     web = WebServer(name=system_name, kernel=os_kernel)
     os_kernel.add_task(web)

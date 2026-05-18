@@ -18,8 +18,9 @@ class LoRaNode:
                                sck=machine.Pin(5), mosi=machine.Pin(27), miso=machine.Pin(19))
 
         self.lock = asyncio.Lock()
-        self.adc = machine.ADC(machine.Pin(37))
-        self.adc.atten(machine.ADC.ATTN_11DB)
+        # ПОЛНОСТЬЮ ОТКЛЮЧАЕМ АЦП ДЛЯ СТАБИЛЬНОСТИ ШИНЫ
+        # self.adc = machine.ADC(machine.Pin(34))
+        # self.adc.atten(machine.ADC.ATTN_11DB)
 
     async def _rw(self, reg, val=None):
         async with self.lock:
@@ -41,11 +42,8 @@ class LoRaNode:
         self.rst.value(1)
         await asyncio.sleep_ms(200)
 
-        # === ИСПРАВЛЕНИЕ: Правильный вход в режим LoRa ===
-        # 1. Переходим в Sleep, чтобы разблокировать бит LoRa
         await self._rw(0x01, 0x80)
         await asyncio.sleep_ms(10)
-        # 2. Только теперь переходим в рабочий Standby
         await self._rw(0x01, 0x81)
         await asyncio.sleep_ms(10)
 
@@ -57,41 +55,31 @@ class LoRaNode:
         await self._rw(0x1D, 0x72);
         await self._rw(0x1E, 0xA4);
         await self._rw(0x09, 0x8F)
-        await self._rw(0x0E, 0x00)  # TxBaseAddr
-        await self._rw(0x0F, 0x00)  # RxBaseAddr
+        await self._rw(0x0E, 0x00)
+        await self._rw(0x0F, 0x00)
 
         await self._rw(0x40, 0x00)
-        print("LoRa Hardware Init OK (LoRa Mode Active)")
+        print("LoRa Hardware Init OK")
 
     async def send(self, data):
         payload = data.encode() if isinstance(data, str) else data
-
-        await self._rw(0x01, 0x81)  # Убеждаемся, что мы в Standby
-        await self._rw(0x40, 0x40)  # DIO0 -> TxDone
-        await self._rw(0x0D, 0x00)  # Сброс указателя FIFO
+        await self._rw(0x01, 0x81)
+        await self._rw(0x40, 0x40)
+        await self._rw(0x0D, 0x00)
         await self._rw(0x22, len(payload))
-
         async with self.lock:
             self.cs.value(0)
             self.spi.write(b'\x80' + payload)
             self.cs.value(1)
-
-        await self._rw(0x01, 0x83)  # TX Mode
-
+        await self._rw(0x01, 0x83)
         start = time.ticks_ms()
         try:
-            # На SF10 21 байт передается ~370 мс. Таймаута в 3000 мс хватит с запасом.
             while self.dio0.value() == 0:
-                if time.ticks_diff(time.ticks_ms(), start) > 3000:
-                    print("[LoRa] Send Timeout!")
-                    await self._rw(0x01, 0x81)
-                    return False
+                if time.ticks_diff(time.ticks_ms(), start) > 3000: return False
                 await asyncio.sleep_ms(50)
-                
-            await self._rw(0x12, 0x08)  # Очищаем флаг TxDone в чипе
+            await self._rw(0x12, 0x08)
             return True
-        except Exception as e:
-            print(f"[LoRa] Send Error: {e}")
+        except:
             await self._rw(0x01, 0x81)
             return False
 
@@ -99,14 +87,12 @@ class LoRaNode:
         await self._rw(0x01, 0x81)
         await self._rw(0x40, 0x00)
         await self._rw(0x01, 0x85)
-        
         start_time = time.ticks_ms()
         try:
             while self.dio0.value() == 0:
                 if timeout_ms > 0 and time.ticks_diff(time.ticks_ms(), start_time) > timeout_ms:
                     return None, None
                 await asyncio.sleep_ms(50)
-
             flags = await self._rw(0x12)
             if flags & 0x40:
                 length = await self._rw(0x13)
@@ -119,9 +105,5 @@ class LoRaNode:
                 rssi = await self._rw(0x1A) - 164
                 await self._rw(0x12, 0xFF)
                 return data, rssi
-        except Exception as e:
-            print(f"[LoRa] Listen Error: {e}")
+        except: pass
         return None, None
-
-    def get_battery(self):
-        return (self.adc.read() / 4095) * 3.3 * 2

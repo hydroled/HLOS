@@ -1,0 +1,288 @@
+<style>
+    .update-card { background: #fff; border: 1px solid #dee2e6; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+    .update-title { font-size: 1.2rem; font-weight: bold; color: #007bff; margin-bottom: 15px; border-bottom: 2px solid #f8f9fa; padding-bottom: 10px; }
+    .file-item { display: flex; align-items: center; padding: 8px; border-bottom: 1px solid #eee; font-size: 0.8rem; }
+    .file-item:last-child { border-bottom: none; }
+    .file-checkbox { margin-right: 12px; transform: scale(1.1); cursor: pointer; }
+    .file-path { font-family: monospace; color: #333; flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-status { font-weight: bold; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; min-width: 50px; text-align: center; }
+    .status-new { color: #28a745; background: #e6f4ea; }
+    .status-changed { color: #d97706; background: #fff8e1; }
+    .status-skipped { color: #94a3b8; background: #f8f9fa; }
+    .path-ignored { color: #94a3b8; text-decoration: line-through; opacity: 0.6; }
+    
+    .progress-container { width: 100%; background: #eee; border-radius: 10px; height: 10px; margin: 15px 0; display: none; overflow: hidden; }
+    .progress-bar { height: 100%; background: #28a745; width: 0%; transition: width 0.2s; }
+    
+    .btn-action { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; margin-top: 10px; color: #fff; transition: 0.2s; }
+    .btn-select { background: #6366f1; }
+    .btn-sync { background: #10b981; }
+    .btn-disabled { background: #cbd5e1; cursor: not-allowed; }
+    
+    #log { margin-top: 15px; font-size: 0.7rem; color: #64748b; max-height: 150px; overflow-y: auto; background: #f8fafc; padding: 10px; border-radius: 6px; font-family: monospace; border: 1px solid #e2e8f0; }
+    .log-err { color: #ef4444; }
+</style>
+
+<div class="container">
+    <div class="dashboard-header">Мастер обновления (OTA Sync)</div>
+
+    <div class="update-card">
+        <div class="update-title">1. Выбор папки проекта</div>
+        <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 15px;">Выберите корневую папку проекта. Игнорируются: .git, .idea, venv и правила из .gitignore.</p>
+        <input type="file" id="folder-input" webkitdirectory directory multiple style="display: none;">
+        <button id="btn-browse" onclick="document.getElementById('folder-input').click()" class="btn-action btn-select">📂 ВЫБРАТЬ ПАПКУ ПРОЕКТА</button>
+        <div id="selected-info" style="margin-top: 10px; font-weight: bold; display: none; font-size: 0.9rem;">
+            Найдено локально: <span id="file-count">0</span> файлов.
+        </div>
+    </div>
+
+    <div id="compare-section" class="update-card" style="display: none;">
+        <div class="update-title">2. Анализ изменений</div>
+        
+        <div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; background: #f8fafc; padding: 8px; border-radius: 6px;">
+            <label style="cursor:pointer; display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="check-all" onchange="toggleAll(this)" checked> 
+                <b>Выбрать все важные</b>
+            </label>
+            <div>
+                <span class="status-new" style="padding: 2px 6px; border-radius: 4px;">New: <span id="stat-new">0</span></span>
+                <span class="status-changed" style="padding: 2px 6px; border-radius: 4px; margin-left: 5px;">Diff: <span id="stat-changed">0</span></span>
+            </div>
+        </div>
+
+        <div id="file-list" style="max-height: 400px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff;">
+            <div id="scan-status" style="padding: 40px; text-align: center; color: #64748b;">
+                <div class="spinner">🔄</div>
+                <div id="scan-path">Инициализация...</div>
+            </div>
+        </div>
+        
+        <div class="progress-container" id="progress-cont">
+            <div class="progress-bar" id="progress-bar"></div>
+        </div>
+
+        <button id="btn-sync" onclick="startSync()" class="btn-action btn-sync" style="display:none;">🚀 СИНХРОНИЗИРОВАТЬ</button>
+        <div id="log"></div>
+    </div>
+</div>
+
+<script>
+    let localFiles = [];
+    let remoteFiles = {};
+    let ignoreRules = ['.git/', '.idea/', '__pycache__/', '.venv/', 'venv/', '.DS_Store', 'node_modules/', '*.pyc']; 
+    let comparedItems = [];
+
+    // Чистый запрос (для API где важен путь)
+    const pureFetch = (url, opts = {}) => {
+        const timeout = 15000;
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeout);
+        return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(id));
+    };
+
+    // Запрос с защитой от кэша (только для GET)
+    const cacheFetch = (url, opts = {}) => {
+        const sep = url.includes('?') ? '&' : '?';
+        return pureFetch(`${url}${sep}cb=${Date.now()}`, opts);
+    };
+
+    document.getElementById('folder-input').addEventListener('change', async (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+
+        addLog(`Начало анализа...`);
+        document.getElementById('btn-browse').disabled = true;
+        
+        comparedItems = [];
+        remoteFiles = {};
+        
+        const gitignoreFile = files.find(f => f.webkitRelativePath.endsWith('.gitignore'));
+        if (gitignoreFile) {
+            try {
+                const text = await gitignoreFile.text();
+                const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+                ignoreRules = [...new Set([...ignoreRules, ...lines])];
+                addLog(`Загружен .gitignore (${lines.length} правил)`);
+            } catch(e) { addLog("Ошибка чтения .gitignore", true); }
+        }
+
+        localFiles = files.filter(f => {
+            const path = f.webkitRelativePath.toLowerCase();
+            return !path.includes('/.git/') && !path.includes('/.idea/') && !path.includes('/venv/') && !path.includes('/__pycache__/');
+        });
+
+        document.getElementById('file-count').textContent = localFiles.length;
+        document.getElementById('selected-info').style.display = 'block';
+        document.getElementById('compare-section').style.display = 'block';
+        document.getElementById('btn-sync').style.display = 'none';
+        
+        try {
+            await scanRemote();
+            addLog("Сканирование завершено.");
+        } catch (err) {
+            addLog(`Сбой: ${err.message}`, true);
+        } finally {
+            compare();
+            document.getElementById('btn-browse').disabled = false;
+        }
+    });
+
+    async function scanRemote(path = '/', depth = 0) {
+        if (depth > 10) return;
+        document.getElementById('scan-path').textContent = `Сканирование: ${path}`;
+        try {
+            const res = await cacheFetch(`/api/ls?chdir=${encodeURIComponent(path)}`);
+            const data = await res.json();
+            if (!data.files) return;
+
+            const normPath = path.replace(/\/$/, '') || '/';
+            const normCurr = data.currdir.replace(/\/$/, '') || '/';
+            if (normPath !== normCurr) return;
+
+            for (const f of data.files) {
+                const name = f[0];
+                if (name === '.' || name === '..') continue;
+                const fullPath = (path === '/' ? '' : path) + '/' + name;
+                if (f[1] & 16384) await scanRemote(fullPath, depth + 1);
+                else remoteFiles[fullPath] = { size: f[2] };
+            }
+        } catch (e) { addLog(`Ошибка в ${path}: ${e.message}`, true); }
+    }
+
+    function isIgnored(path) {
+        const cleanPath = path.replace(/^\//, '');
+        const fileName = cleanPath.split('/').pop();
+        
+        for (const rule of ignoreRules) {
+            let p = rule.trim().replace(/^\//, '');
+            if (!p) continue;
+
+            if (p.startsWith('*')) {
+                if (cleanPath.endsWith(p.slice(1))) return true;
+            } else if (p.endsWith('/')) {
+                const dir = p.slice(0, -1);
+                if (cleanPath.startsWith(dir + '/') || cleanPath === dir) return true;
+            } else {
+                // Точное совпадение имени файла или всего пути
+                if (fileName === p || cleanPath === p || cleanPath.endsWith('/' + p)) return true;
+            }
+        }
+        return false;
+    }
+
+    function compare() {
+        const listEl = document.getElementById('file-list');
+        listEl.innerHTML = '';
+        let countNew = 0, countChanged = 0;
+
+        localFiles.forEach(f => {
+            const parts = f.webkitRelativePath.split('/');
+            const relPath = '/' + parts.slice(1).join('/');
+            if (relPath === '/.gitignore') return;
+
+            const remote = remoteFiles[relPath];
+            let status = 'sync', statusText = 'OK', needsUpload = false;
+            let ignored = isIgnored(relPath);
+
+            if (!remote) {
+                status = 'new'; statusText = 'NEW'; needsUpload = true;
+                if (!ignored) countNew++;
+            } else if (remote.size !== f.size) {
+                status = 'changed'; statusText = 'DIFF'; needsUpload = true;
+                if (!ignored) countChanged++;
+            }
+
+            if (needsUpload) {
+                const idx = comparedItems.length;
+                comparedItems.push({ file: f, path: relPath, ignored });
+                const item = document.createElement('div');
+                item.className = 'file-item';
+                item.innerHTML = `
+                    <input type="checkbox" class="file-checkbox sync-cb" data-idx="${idx}" ${ignored ? '' : 'checked'}>
+                    <span class="file-path ${ignored ? 'path-ignored' : ''}">${relPath}</span>
+                    <span class="file-status status-${ignored ? 'skipped' : status}">${ignored ? 'SKIP' : statusText}</span>
+                `;
+                listEl.appendChild(item);
+            }
+        });
+
+        document.getElementById('stat-new').textContent = countNew;
+        document.getElementById('stat-changed').textContent = countChanged;
+        document.getElementById('btn-sync').style.display = 'block';
+        if (comparedItems.length === 0) {
+            listEl.innerHTML = '<div style="padding: 40px; text-align: center; color: #10b981; font-weight: bold;">✅ Всё обновлено</div>';
+            document.getElementById('btn-sync').disabled = true;
+        } else {
+            document.getElementById('btn-sync').disabled = false;
+        }
+    }
+
+    function toggleAll(source) {
+        document.querySelectorAll('.sync-cb').forEach(cb => {
+            cb.checked = source.checked ? !comparedItems[cb.dataset.idx].ignored : false;
+        });
+    }
+
+    async function startSync() {
+        const selectedCbs = Array.from(document.querySelectorAll('.sync-cb:checked'));
+        if (selectedCbs.length === 0) return;
+        if (!confirm(`Обновить файлы: ${selectedCbs.length} шт?`)) return;
+        
+        document.getElementById('btn-sync').disabled = true;
+        document.getElementById('progress-cont').style.display = 'block';
+        const bar = document.getElementById('progress-bar');
+        let done = 0;
+
+        for (const cb of selectedCbs) {
+            const item = comparedItems[cb.dataset.idx];
+            const pathParts = item.path.split('/');
+            const fileName = pathParts.pop();
+            const dirPath = pathParts.join('/') || '/';
+
+            addLog(`📤 Загрузка: ${item.path}`);
+            try {
+                await ensureDir(dirPath);
+                // ВАЖНО: Тут pureFetch БЕЗ параметров cb в URL, чтобы не испортить имя файла
+                const response = await pureFetch(`/api/upload/${encodeURIComponent(fileName)}`, {
+                    method: 'POST', body: item.file,
+                    headers: { 'Content-Length': item.file.size }
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                done++;
+                bar.style.width = (done / selectedCbs.length * 100) + '%';
+            } catch (e) { addLog(`❌ Ошибка ${item.path}: ${e.message}`, true); }
+        }
+
+        addLog("✨ Готово! Возврат в корень...");
+        await cacheFetch(`/api/ls?chdir=/`); 
+        alert("Синхронизация завершена. Очистите мусорные файлы в Files и перезагрузите ESP32.");
+        location.reload();
+    }
+
+    async function ensureDir(path) {
+        if (path === '/') return;
+        const parts = path.split('/').filter(p => p);
+        let current = '';
+        for (const p of parts) {
+            const parent = current || '/';
+            current += '/' + p;
+            try {
+                const res = await cacheFetch(`/api/ls?chdir=${encodeURIComponent(current)}`);
+                if (!res.ok) throw new Error();
+            } catch (e) {
+                await cacheFetch(`/api/ls?chdir=${encodeURIComponent(parent)}`);
+                await pureFetch(`/api/mkdir/${encodeURIComponent(p)}`, { method: 'POST' });
+            }
+        }
+        await cacheFetch(`/api/ls?chdir=${encodeURIComponent(path)}`);
+    }
+
+    function addLog(msg, isErr = false) {
+        const log = document.getElementById('log');
+        const entry = document.createElement('div');
+        if (isErr) entry.className = 'log-err';
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        log.appendChild(entry);
+        log.scrollTop = log.scrollHeight;
+    }
+</script>

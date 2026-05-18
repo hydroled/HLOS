@@ -9,7 +9,7 @@
 </style>
 
 <div class="container">
-    <div class="dashboard-header">Управление Передатчиком (GTS TX)</div>
+    <div class="dashboard-header">Управление Передатчиком (GTS TX) - ID: <span id="local-id">Загрузка...</span></div>
 
     <div class="sensor-card">
         <div class="sensor-title">
@@ -29,7 +29,18 @@
         <input type="number" id="inp-ow-pin" style="width:100%; padding:8px; margin-bottom:10px; border:1px solid #ddd; border-radius:6px;">
 
         <label>Пин DHT22 (Воздух):</label>
-        <input type="number" id="inp-dht-pin" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:6px;">
+        <input type="number" id="inp-dht-pin" style="width:100%; padding:8px; margin-bottom:15px; border:1px solid #ddd; border-radius:6px;">
+
+        <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 5px;">
+            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                <input type="checkbox" id="inp-autostart" style="width: 20px; height: 20px;">
+                <span>Автозапуск LoRa при старте</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                <input type="checkbox" id="inp-use-deepsleep" style="width: 20px; height: 20px;">
+                <span>Использовать Deep Sleep</span>
+            </label>
+        </div>
     </div>
 
     <div class="sensor-card">
@@ -73,6 +84,8 @@
         try {
             const res = await fetch('/api/gts_tx/read_all');
             const data = await res.json();
+            
+            document.getElementById('local-id').textContent = data.device_id || '---';
 
             if (data.lora_os) {
                 const stat = document.getElementById('os-lora-status');
@@ -96,6 +109,17 @@
                 document.getElementById('inp-ow-pin').value = data.config.ow_pin;
                 document.getElementById('inp-dht-pin').value = data.config.dht_pin;
                 document.getElementById('inp-meas-int').value = data.config.measure_interval || 60;
+                
+                const cbAutostart = document.getElementById('inp-autostart');
+                if (cbAutostart) cbAutostart.checked = data.config.autostart || false;
+                
+                const cbDeepSleep = document.getElementById('inp-use-deepsleep');
+                if (cbDeepSleep) cbDeepSleep.checked = data.config.use_deepsleep || false;
+                
+                const inpSleepInt = document.getElementById('inp-sleep-int');
+                if (inpSleepInt && document.activeElement !== inpSleepInt) {
+                    inpSleepInt.value = data.config.sleep_interval || 10;
+                }
             }
 
             if (data.onewire && data.onewire.length > 0) {
@@ -236,19 +260,6 @@
         try {
             await fetch('/api/gts_tx/deepsleep', { method: 'POST', body: JSON.stringify(body) });
             document.body.innerHTML = "<h1 style='text-align:center; margin-top:20%; color:#dc3545;'>Контроллер спит</h1>";
-        } catch (e) {}
-    }
-
-    update();
-    setInterval(update, 5000);
-</script>eep', { method: 'POST', body: JSON.stringify(body) });
-            document.body.innerHTML = "<h1 style='text-align:center; margin-top:20%; color:#dc3545;'>Контроллер спит</h1>";
-        } catch (e) {}
-    }
-
-    update();
-    setInterval(update, 5000);
-</script>ment.body.innerHTML = "<h1 style='text-align:center; margin-top:20%; color:#dc3545;'>Контроллер спит</h1>";
         } catch (e) {}
     }
 

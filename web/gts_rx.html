@@ -7,7 +7,14 @@
 </style>
 
 <div class="container">
-    <div class="dashboard-header" style="font-size: 1.5rem; font-weight: bold; margin-bottom: 20px; color: #333;">Монитор Приемника (GTS RX)</div>
+    <div class="dashboard-header" style="font-size: 1.5rem; font-weight: bold; margin-bottom: 20px; color: #333;">
+        Приемник (GTS RX) ID: <span id="local-id" style="color: #007bff;">Загрузка...</span>
+    </div>
+    
+    <div class="sensor-card" style="border-color: #28a745; margin-bottom: 20px;">
+        <div class="sensor-title" style="color: #28a745;">Собственная батарея приемника</div>
+        <div id="local-bat-val" style="font-size:1.5rem; font-weight:bold; color:#28a745;">Ожидание...</div>
+    </div>
 
     <div class="sensor-card" style="border-color: #6f42c1;">
         <div class="sensor-title" style="color: #6f42c1;">
@@ -67,6 +74,11 @@
         try {
             const res = await fetch('/api/gts_rx/data');
             const data = await res.json();
+            
+            document.getElementById('local-id').textContent = data.device_id || '---';
+            if (data.local_bat > 0) {
+                document.getElementById('local-bat-val').textContent = `⚡ ${data.local_bat.toFixed(2)} В`;
+            }
 
             const badge = document.getElementById('rx-status-badge');
             if(data.active) {
@@ -86,8 +98,12 @@
             if(pack.status === "ok") {
                 document.getElementById('pack-time').textContent = pack.time;
                 document.getElementById('rssi-val').textContent = pack.rssi;
-                document.getElementById('dht-val').textContent = `${pack.data.air_t}°C | ${pack.data.air_h}%`;
-                document.getElementById('bat-val').textContent = `⚡ ${pack.data.bat.toFixed(2)} В`;
+                document.getElementById('dht-val').innerHTML = `
+                    <div style="font-size: 1.2rem; color: #555;">ID отправителя: <b style="color: #007bff;">${pack.data.device_id}</b></div>
+                    <div>${pack.data.air_t}°C | ${pack.data.air_h}%</div>
+                    <div style="font-size: 1rem; color: #ffc107;">Батарея отправителя: ${pack.data.bat.toFixed(2)} В</div>
+                `;
+                document.getElementById('bat-val').style.display = 'none';
 
                 const list = document.getElementById('ow-list');
                 let owHtml = "";
